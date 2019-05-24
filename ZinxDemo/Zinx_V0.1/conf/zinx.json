@@ -1,0 +1,7 @@
+{
+  "Host": "0.0.0.0",
+  "Port": 9999,
+  "Name": "Zinx_mim",
+  "Version": "Zinx_V0.4",
+  "MaxPackageSize": 1024
+}

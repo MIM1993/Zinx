@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"net"
 	"log"
-	"runtime"
 	"zinx/ZINX/ziface"
+	"zinx/ZINX/config"
 )
 
 //iServer接口实现，定义一个Server服务类
@@ -18,6 +18,20 @@ type Server struct {
 	IP string
 	//服务绑定的端口号
 	Port int
+	//路由属性
+	Router ziface.IRouter
+}
+
+//创建一个服务器句柄
+func NewServer(name string) ziface.IServer {
+	s := &Server{
+		Name:      config.Conf.Name,
+		IPVersion: "tcp4",
+		IP:        config.Conf.Host,
+		Port:      config.Conf.Port,
+		Router:    nil,
+	}
+	return s
 }
 
 //开启网络服务
@@ -42,6 +56,10 @@ func (s *Server) Start() {
 		//已经监听成功
 		fmt.Println("start Zinx server  ", s.Name, " succ, now listenning...")
 
+		//设置链接ID
+		var cid uint32
+		cid = 0
+
 		//3、启动server网络连接业务   循还
 		for {
 			//3.1 阻塞等待客户端建立连接请求
@@ -52,24 +70,11 @@ func (s *Server) Start() {
 			}
 
 			//我们这里暂时做一个最大512字节的回显服务
-			go func() {
-				buff := make([]byte, 512)
-				for {
-					n, err := conn.Read(buff)
-					if err != nil {
-						fmt.Println("recv buf err ", err)
-						continue
-					}
+			dealConn := NewConnection(conn, cid, s.Router)
+			cid++
 
-					//回显业务
-					_, err = conn.Write(buff[:n])
-					if err != nil {
-						fmt.Println("write back buf err ", err)
-						continue
-					}
-				}
+			go dealConn.Start()
 
-			}()
 		}
 	}()
 }
@@ -86,18 +91,9 @@ func (s *Server) Serve() {
 	//开启服务
 	s.Start()
 
-	for {
-		runtime.GC()
-	}
+	select {}
 }
 
-//创建一个服务器句柄
-func NewServer(name string) ziface.Iserver {
-	s := &Server{
-		Name:      name,
-		IPVersion: "tcp4",
-		IP:        "127.0.0.1",
-		Port:      7777,
-	}
-	return s
+func (s *Server) AddRouter(router ziface.IRouter) {
+	s.Router = router
 }
