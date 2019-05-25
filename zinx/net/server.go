@@ -4,6 +4,7 @@ import (
 	"review/zinx/ziface"
 	"net"
 	"fmt"
+	"review/zinx/config"
 )
 
 type Server struct {
@@ -15,18 +16,25 @@ type Server struct {
 	Port int
 	//服务器名
 	Name string
+	//路由属性
+	//Router ziface.IRouter
+
+	//录用map集合属性
+	MsgHandler ziface.IMsgHandler
 }
 
 //初始化服务器方法
 func NewServer(name string) ziface.IServer {
 	s := &Server{
-		IPVersion: "tcp4",
-		IP:        "0.0.0.0",
-		Port:      8999,
-		Name:      name,
+		IPVersion:  "tcp4",
+		IP:         config.GlobalObject.Host,
+		Port:       config.GlobalObject.Port,
+		Name:       config.GlobalObject.Name,
+		MsgHandler: NewMsgHandler(),
 	}
 	return s
 }
+
 
 //启动服务器
 func (s *Server) Start() {
@@ -43,33 +51,23 @@ func (s *Server) Start() {
 		return
 	}
 
+	//生成id
+	var cid uint32
+	cid = 0
 	//3 阻塞等待客户端发送请求
 	go func() {
 		for {
 			//阻塞等待客户端发送请求
-			conn, err := Listener.Accept()
+			conn, err := Listener.AcceptTCP()
 			if err != nil {
 				fmt.Println("Accept err :", err)
 				return
 			}
 			//与客户端进行连接
-			go func() {
-				buf := make([]byte, 512)
-				for {
-					cnt, err := conn.Read(buf)
-					if err != nil {
-						fmt.Println("recv buf err:", err)
-						break
-					}
+			dealConn := NewConnection(conn, cid, s.MsgHandler)
+			cid++
 
-					fmt.Printf("recv client buf %s, cnt = %d\n", buf, cnt)
-
-					if _, err := conn.Write(buf[:cnt]); err != nil {
-						fmt.Println("write back err :", err)
-						continue
-					}
-				}
-			}()
+			go dealConn.Start()
 		}
 	}()
 
@@ -82,9 +80,15 @@ func (s *Server) Stop() {
 
 //运行服务器
 func (s *Server) Serve() {
-	//开启服务
+	//开启服务;
 	s.Start()
 
-	//阻塞
-	select {}
+	//TODO  做一些其他的扩展
+	//阻塞//告诉CPU不再需要处理的，节省cpu资源
+	select {} //main函数不退出  //main函数 阻塞在这
+}
+
+//添加路由函数
+func (s *Server) AddRouter(MsgId uint32, router ziface.IRouter) {
+	s.MsgHandler.AddRouter(MsgId, router)
 }

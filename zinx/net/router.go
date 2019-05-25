@@ -1,19 +1,25 @@
-package znet
+package net
 
-import "zinx/ZINX/ziface"
+import "review/zinx/ziface"
 
-//定义router类型结构体   具体的路由
+/*
+	具体的路由
+*/
+
 type BaseRouter struct {
 }
 
-//业务处理之前操作函数
+//处理业务之前的方法
 func (r *BaseRouter) PreHandle(request ziface.IRequest) {
+
 }
 
-//处理业务函数
+//真正处理业务的方法
 func (r *BaseRouter) Handle(request ziface.IRequest) {
+
 }
 
-//处理业务之后操作的函数
+//处理业务之后的方法
 func (r *BaseRouter) PostHandle(request ziface.IRequest) {
+
 }

@@ -7,4 +7,6 @@ type IServer interface {
 	Stop()
 	//运行服务
 	Serve()
+	//添加路由函数
+	AddRouter(MsgId uint32, router IRouter)
 }

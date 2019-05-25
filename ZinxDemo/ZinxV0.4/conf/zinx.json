@@ -1,0 +1,6 @@
+{
+  "Name":"Zinx Server App",
+  "Host":"0.0.0.0",
+  "Port":7777,
+  "MaxPackageSize":4096
+}
