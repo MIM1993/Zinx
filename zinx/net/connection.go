@@ -6,10 +6,13 @@ import (
 	"fmt"
 	"errors"
 	"io"
+	"review/zinx/config"
 )
 
 // 具体的TCP连接模块
 type Connection struct {
+	//当前链接是属于那个server创建的
+	server ziface.IServer
 	//当前连接的原声陶介子
 	Conn *net.TCPConn
 	//连接ID
@@ -17,23 +20,37 @@ type Connection struct {
 	//当前连接状态
 	isClosed bool
 	//当前连接锁绑定的方法
-	handleAPI ziface.HandleFunc
+	//handleAPI ziface.HandleFunc
 	//路由属性
 	MsgHandler ziface.IMsgHandler
+
+	//添加一个reader和writer及通信的channel
+	msgChan chan []byte
+
+	//创建一个channel,用于reader通知writer,conn链接已经关闭,需要退出,释放系统资源
+	writerExitChan chan bool
 }
 
 /*
   初始化方法
  */
 
-func NewConnection(conn *net.TCPConn, connID uint32, MsgHandler ziface.IMsgHandler) ziface.IConnection {
+//初始化生成链接模块
+func NewConnection(server ziface.IServer, conn *net.TCPConn, connID uint32, MsgHandler ziface.IMsgHandler) ziface.IConnection {
 	c := &Connection{
+		server:   server,
 		Conn:     conn,
 		ConnID:   connID,
 		isClosed: false,
 		//handleAPI: callback,
-		MsgHandler: MsgHandler,
+		MsgHandler:     MsgHandler,
+		msgChan:        make(chan []byte),
+		writerExitChan: make(chan bool),
 	}
+
+	//当创建一个链接时,添加到链接管理器中
+	c.server.GetConnMgr().Add(c)
+
 	return c
 }
 
@@ -82,11 +99,38 @@ func (c *Connection) StartReader() {
 		req := NewRequest(c, msg)
 
 		//调用用户传递进来的自定义的业务模板
-		go c.MsgHandler.DoMsgHandler(req)
+		//将req数据交给worker工作池来处理
+		if config.GlobalObject.WorkerPoolSize > 0 {
+			c.MsgHandler.SendMsgToTaskQueue(req)
+		} else {
+			go c.MsgHandler.DoMsgHandler(req)
+		}
 
 		//清空buf
 		//buf = []byte{}
 	}
+}
+
+//写消息的groutine ,专门负责给客户端发送消息
+func (c *Connection) StartWriter() {
+	fmt.Println("[Writer Groutine is Start...]")
+
+	defer fmt.Println("Writer Groutine is Stop")
+	//IO多路复用
+	for {
+		select {
+		case data := <-c.msgChan:
+			//用数据发送过来
+			if _, err := c.Conn.Write(data); err != nil {
+				fmt.Println("Send data err :", err)
+				return
+			}
+
+		case <-c.writerExitChan:
+			return
+		}
+	}
+
 }
 
 //启动连接
@@ -96,12 +140,19 @@ func (c *Connection) Start() {
 	//读业务
 	go c.StartReader()
 
-	//TODO:写业务
+	//写业务
+	go c.StartWriter()
+
+	//调用创建链接后的Hook函数
+	c.server.CallOnConnStart(c)
 }
 
 //停止连接
 func (c *Connection) Stop() {
 	fmt.Println("Conn stop ... ID = ", c.ConnID)
+
+	//调用销毁链接前的Hook函数
+	c.server.CallOnConnStop(c)
 
 	//回收工作
 	if c.isClosed == true {
@@ -110,7 +161,19 @@ func (c *Connection) Stop() {
 
 	c.isClosed = true
 
+	//当StartReader执行了Stop()时,用于通知StartWriter对端Conn已关闭
+	c.writerExitChan <- true
+
+	//关闭源生套接字
 	_ = c.Conn.Close()
+
+	//从链接管理模块中删除当前链接
+	c.server.GetConnMgr().Remove(c.ConnID)
+
+	//资源回收,释放资源
+	close(c.msgChan)
+	close(c.writerExitChan)
+
 }
 
 //获取连接
@@ -147,9 +210,13 @@ func (c *Connection) Send(msgId uint32, msgData []byte) error {
 	}
 
 	//将binaryMsg二进制数据流发送到对端
-	if _, err := c.Conn.Write(binaryMsg); err != nil {
-		fmt.Println("send buf error:", err)
-		return err
-	}
+	//if _, err := c.Conn.Write(binaryMsg); err != nil {
+	//	fmt.Println("send buf error:", err)
+	//	return err
+	//}
+
+	//将需要发送的数据发送到channel 让writer写给客户端
+	c.msgChan <- binaryMsg
+
 	return nil
 }
